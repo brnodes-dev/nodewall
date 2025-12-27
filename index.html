@@ -219,7 +219,8 @@
         ];
         const TOKEN_ABI = [
             "function approve(address spender, uint256 amount) public returns (bool)",
-            "function allowance(address owner, address spender) public view returns (uint256)"
+            "function allowance(address owner, address spender) public view returns (uint256)",
+            "function balanceOf(address account) public view returns (uint256)" // Added BalanceOf
         ];
 
         let provider, signer, wallContract, tokenContract, userAddress;
@@ -246,13 +247,8 @@
                     const div = document.createElement("div");
                     div.className = "pixel";
                     div.id = `px-${x}-${y}`;
-                    
-                    // --- MOUSE HOVER (PC) ---
                     div.onmouseover = () => showInfo(x, y); 
-                    
-                    // --- CLICK/TAP (MOBILE & PC) ---
                     div.onclick = () => selectPixel(x, y); 
-                    
                     container.appendChild(div);
                 }
             }
@@ -282,13 +278,11 @@
 
         // --- INTERACTION ---
         function showInfo(x, y) {
-            // Displays info on hover without selecting
             const el = document.getElementById(`px-${x}-${y}`);
             renderInfoPanel(el, x, y);
         }
 
         function selectPixel(x, y) {
-            // Remove previous highlight
             if (selectedX !== null) {
                 const prev = document.getElementById(`px-${selectedX}-${selectedY}`);
                 if(prev) prev.classList.remove("selected");
@@ -300,7 +294,6 @@
             const el = document.getElementById(`px-${x}-${y}`);
             el.classList.add("selected");
             
-            // Render info and enable button
             renderInfoPanel(el, x, y);
             
             const btn = document.getElementById("paintBtn");
@@ -389,7 +382,7 @@
             setTimeout(() => location.reload(), 500);
         }
 
-        // --- ACTION ---
+        // --- ACTION (WITH BALANCE CHECK) ---
         async function paintPixel() {
             if (!userAddress) return initConnect(true);
             if (selectedX === null) return;
@@ -401,6 +394,23 @@
             const status = document.getElementById("status");
 
             try {
+                btn.disabled = true; // Prevent double click
+
+                // 1. Check Balance
+                status.innerText = "Checking balance...";
+                const balance = await tokenContract.balanceOf(userAddress);
+                
+                if (balance.lt(PIXEL_PRICE)) {
+                    status.innerText = "Error: Insufficient $NODE Balance!";
+                    btn.innerText = "NO FUNDS";
+                    setTimeout(() => { 
+                        btn.disabled = false; 
+                        btn.innerText = `PAINT (${selectedX},${selectedY}) - 50 $NODE`; 
+                    }, 3000);
+                    return; // Stop here
+                }
+
+                // 2. Check Allowance
                 const allowance = await tokenContract.allowance(userAddress, WALL_ADDRESS);
                 if (allowance.lt(PIXEL_PRICE)) {
                     status.innerText = "Approving $NODE...";
@@ -409,6 +419,7 @@
                     await tx.wait();
                 }
 
+                // 3. Paint
                 status.innerText = "Confirming...";
                 btn.innerText = "PAINTING...";
                 
@@ -429,14 +440,23 @@
                 document.getElementById("pixelMessage").value = "";
 
                 setTimeout(() => { 
+                    btn.disabled = false;
                     if(selectedX !== null) btn.innerText = `PAINT (${selectedX},${selectedY}) - 50 $NODE`;
                     else btn.innerText = "PAINT PIXEL";
                 }, 2000);
 
             } catch (err) {
                 console.error(err);
-                status.innerText = "Error: " + (err.reason || "Failed");
+                
+                // Smart Error Handling
+                let msg = err.reason || err.message;
+                if (msg.includes("user rejected")) msg = "Transaction Cancelled.";
+                else if (msg.includes("insufficient funds")) msg = "Insufficient BNB for Gas.";
+                else msg = "Transaction Failed.";
+
+                status.innerText = "Error: " + msg;
                 btn.innerText = "RETRY";
+                btn.disabled = false;
             }
         }
         
