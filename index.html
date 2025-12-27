@@ -13,7 +13,7 @@
         h1 { font-size: 1.8rem; text-shadow: 0 0 10px #00ff41; margin: 5px 0; line-height: 1; }
         .subtitle { color: #666; font-size: 0.7rem; letter-spacing: 1px; margin-bottom: 15px; }
 
-        .main-layout { display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%; }
+        .main-layout { display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%; max-width: 800px; margin: 0 auto; }
 
         /* SCROLL WRAPPER */
         #grid-scroll-wrapper {
@@ -57,16 +57,15 @@
             padding: 10px;
             border-radius: 4px;
             width: 100%;
-            max-width: 400px;
+            max-width: 450px;
             text-align: left;
         }
         
-        /* Updated Info Panel to show message */
         .info-panel { 
             margin-bottom: 10px; 
             font-size: 0.8rem; 
             color: #888; 
-            min-height: 50px; /* Taller for text */
+            min-height: 50px;
             word-break: break-word;
             border-bottom: 1px dashed #333;
             padding-bottom: 5px;
@@ -84,7 +83,6 @@
             cursor: pointer;
         }
 
-        /* Message Input */
         input[type="text"] {
             width: 100%;
             padding: 10px;
@@ -121,12 +119,25 @@
         .stat-item { border: 1px solid #333; padding: 4px 8px; background: #0a0a0a; white-space: nowrap; }
         .stat-item span { color: #fff; font-weight: bold; }
         
+        /* NEW GUIDE SECTION */
+        .guide-box {
+            border-top: 1px solid #333;
+            margin-top: 20px;
+            padding-top: 20px;
+            text-align: left;
+            font-size: 0.8rem;
+            color: #aaa;
+            line-height: 1.5;
+        }
+        .guide-box h3 { color: #fff; font-size: 1rem; border-left: 3px solid #00ff41; padding-left: 8px; margin-bottom: 10px; }
+        .guide-box p { margin-bottom: 10px; }
+        .guide-highlight { color: #00ff41; font-weight: bold; }
+
         .footer-links { margin-top: 30px; font-size: 0.7rem; display: flex; flex-direction: column; gap: 10px; }
         .footer-links a { color: #555; text-decoration: none; border-bottom: 1px solid #333; width: fit-content; margin: 0 auto; }
 
         #status { color: #888; font-style: italic; font-size: 0.75rem; margin-top: 8px; text-align: center; }
 
-        /* MOBILE FIXES */
         @media (max-width: 600px) {
             #grid-scroll-wrapper { justify-content: flex-start; } 
             body { padding: 5px; }
@@ -170,6 +181,21 @@
             
             <button id="paintBtn" class="btn" disabled onclick="paintPixel()">PAINT PIXEL</button>
             <p id="status">Waiting for connection...</p>
+
+            <div class="guide-box">
+                <h3>/// SYSTEM MANUAL</h3>
+                <p>
+                    <strong>HOW TO PLAY:</strong><br>
+                    Select any pixel on the grid. Choose a color and type a permanent message (advertisement, shoutout, or meme). Confirm the transaction to claim that spot on the blockchain. Anyone can paint over your pixel, creating an eternal war for visibility.
+                </p>
+                <p>
+                    <strong>DEFLATIONARY PURPOSE:</strong><br>
+                    This is not just a game; it's a deflationary protocol. For every pixel painted (50 $NODE), <span class="guide-highlight">40 $NODE (80%) are instantly sent to the burn wallet</span> (0x...dEaD). 
+                </p>
+                <p>
+                    By painting the wall, you are directly reducing the $NODE supply and increasing scarcity.
+                </p>
+            </div>
         </div>
     </div>
 
@@ -186,7 +212,7 @@
         
         const BSC_RPC = "https://bsc-dataseed.binance.org/";
 
-        // --- UPDATED ABI (With Message Support) ---
+        // --- ABIS ---
         const WALL_ABI = [
             "function paintPixel(uint256 x, uint256 y, string calldata color, string calldata message) external",
             "function getGrid() external view returns (string[] memory, address[] memory, string[] memory)"
@@ -232,7 +258,6 @@
             const roContract = new ethers.Contract(WALL_ADDRESS, WALL_ABI, roProvider);
 
             try {
-                // Now fetching 3 arrays: colors, owners, AND messages
                 const [colors, owners, messages] = await roContract.getGrid();
                 
                 for (let i = 0; i < 2500; i++) {
@@ -243,7 +268,7 @@
                     if (colors[i] !== "#111111") {
                         el.style.backgroundColor = colors[i];
                         el.dataset.owner = owners[i];
-                        el.dataset.msg = messages[i]; // Store message in DOM
+                        el.dataset.msg = messages[i];
                     }
                 }
             } catch (err) { console.error("Grid load error", err); }
@@ -262,12 +287,10 @@
             const el = document.getElementById(`px-${x}-${y}`);
             el.classList.add("selected");
             
-            // Display Info
             const owner = el.dataset.owner || "Available";
             const shortOwner = owner === "Available" ? "None" : owner.slice(0,6) + "..." + owner.slice(-4);
             const msg = el.dataset.msg || "No message yet.";
             
-            // Render text with HTML safety
             const safeMsg = msg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
             document.getElementById("pixelInfo").innerHTML = `
@@ -276,7 +299,6 @@
                 <span class="pixel-msg">"${safeMsg}"</span>
             `;
             
-            // Update Button
             const btn = document.getElementById("paintBtn");
             if (userAddress) {
                 btn.disabled = false;
@@ -355,13 +377,12 @@
             if (selectedX === null) return;
 
             const color = document.getElementById("colorPicker").value;
-            const message = document.getElementById("pixelMessage").value; // Get Message
+            const message = document.getElementById("pixelMessage").value; 
             
             const btn = document.getElementById("paintBtn");
             const status = document.getElementById("status");
 
             try {
-                // 1. Allowance
                 const allowance = await tokenContract.allowance(userAddress, WALL_ADDRESS);
                 if (allowance.lt(PIXEL_PRICE)) {
                     status.innerText = "Approving $NODE...";
@@ -370,11 +391,9 @@
                     await tx.wait();
                 }
 
-                // 2. Paint
                 status.innerText = "Confirming...";
                 btn.innerText = "PAINTING...";
                 
-                // Call paintPixel with NEW signature (color, message)
                 const tx = await wallContract.paintPixel(selectedX, selectedY, color, message);
                 
                 status.innerText = "Mining on BSC...";
@@ -383,16 +402,12 @@
                 status.innerText = "SUCCESS!";
                 btn.innerText = "DONE!";
                 
-                // Optimistic UI Update
                 const el = document.getElementById(`px-${selectedX}-${selectedY}`);
                 el.style.backgroundColor = color;
                 el.dataset.owner = userAddress;
                 el.dataset.msg = message;
                 
-                // Refresh info panel to show new message immediately
                 selectPixel(selectedX, selectedY);
-                
-                // Clear input
                 document.getElementById("pixelMessage").value = "";
 
                 setTimeout(() => { 
