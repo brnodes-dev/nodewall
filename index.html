@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Node Wall (BSC)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <style>
+        /* THEME: Matrix/Cyberpunk Green */
+        body { font-family: 'Courier New', Courier, monospace; background-color: #050505; color: #00ff41; text-align: center; margin: 0; padding: 20px; }
+        
+        h1 { font-size: 2.5rem; text-shadow: 0 0 10px #00ff41; margin-bottom: 5px; }
+        .subtitle { color: #666; font-size: 0.8rem; letter-spacing: 2px; margin-bottom: 20px; }
+
+        .main-layout { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+
+        /* THE WALL (GRID) */
+        #canvas-container {
+            display: grid;
+            grid-template-columns: repeat(50, 10px); /* 50 columns */
+            grid-template-rows: repeat(50, 10px);    /* 50 rows */
+            gap: 1px;
+            background-color: #111;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+            padding: 2px;
+            width: fit-content;
+        }
+
+        .pixel {
+            width: 10px;
+            height: 10px;
+            background-color: #1a1a1a;
+            cursor: pointer;
+        }
+        .pixel:hover { border: 1px solid #fff; z-index: 10; }
+        .pixel.selected { border: 1px solid #ff0000; z-index: 10; transform: scale(1.2); }
+
+        /* CONTROLS */
+        .controls {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            padding: 15px;
+            border-radius: 4px;
+            width: 300px;
+            text-align: left;
+        }
+        
+        .info-panel { margin-bottom: 15px; font-size: 0.8rem; color: #888; height: 40px; }
+        .info-panel strong { color: #fff; }
+
+        input[type="color"] {
+            width: 100%;
+            height: 40px;
+            border: 1px solid #333;
+            background: #000;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+
+        .btn { 
+            background-color: #00ff41; color: #000; 
+            font-size: 1.2rem; padding: 10px; width: 100%; 
+            border: none; cursor: pointer; font-weight: bold; text-transform: uppercase; 
+            transition: 0.2s; 
+        }
+        .btn:hover { background-color: #00cc33; box-shadow: 0 0 10px #00ff41; }
+        .btn:disabled { background-color: #333; color: #555; cursor: not-allowed; box-shadow: none; }
+
+        .btn-connect {
+            background: transparent; border: 1px solid #00ff41; color: #00ff41;
+            padding: 8px 16px; font-family: inherit; cursor: pointer; margin-bottom: 20px;
+        }
+        .btn-connect:hover { background: #00ff41; color: #000; }
+
+        /* Stats & Footer */
+        .stats-bar { display: flex; gap: 20px; font-size: 0.9rem; justify-content: center; margin-top: 10px; }
+        .stat-item { border: 1px solid #333; padding: 5px 10px; }
+        .stat-item span { color: #fff; font-weight: bold; }
+        
+        .footer-links { margin-top: 30px; font-size: 0.8rem; }
+        .footer-links a { color: #555; text-decoration: none; margin: 0 10px; border-bottom: 1px solid transparent; }
+        .footer-links a:hover { color: #00ff41; border-color: #00ff41; }
+
+        #status { color: #888; font-style: italic; font-size: 0.8rem; margin-top: 5px; text-align: center; }
+
+    </style>
+</head>
+<body>
+
+    <button id="connectBtn" class="btn-connect" onclick="initConnect()">CONNECT WALLET</button>
+
+    <h1>THE NODE WALL</h1>
+    <p class="subtitle">BSC MAINNET • 50x50 PIXEL WAR</p>
+
+    <div class="stats-bar">
+        <div class="stat-item">Price: <span>50 $NODE</span> / px</div>
+        <div class="stat-item">Burn: <span>80%</span> (Instant)</div>
+    </div>
+
+    <div class="main-layout">
+        <div id="canvas-container">
+            </div>
+
+        <div class="controls">
+            <div class="info-panel" id="pixelInfo">
+                Hover over a pixel...
+            </div>
+
+            <label style="font-size: 0.8rem; color:#888;">CHOOSE COLOR:</label>
+            <input type="color" id="colorPicker" value="#00ff41">
+            
+            <button id="paintBtn" class="btn" disabled onclick="paintPixel()">PAINT PIXEL</button>
+            <p id="status">Select a pixel to paint.</p>
+        </div>
+    </div>
+
+    <div class="footer-links">
+        <a href="https://bscscan.com/token/0x2f714d7b9a035d4ce24af8d9b6091c07e37f43fb?a=0x000000000000000000000000000000000000dead" target="_blank">🔥 VERIFIED BURNS</a>
+        <a href="#" id="contractLink" target="_blank">📄 CONTRACT</a>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const WALL_ADDRESS = "0x1d34c0b0eEC3BB5Bd1eEDe9011FD4b35a30fa615"; 
+        const TOKEN_ADDRESS = "0x2F714d7b9A035d4ce24af8d9b6091c07E37f43Fb"; // $NODE on BSC
+        const PIXEL_PRICE = ethers.utils.parseEther("50"); 
+        
+        // Public BSC RPC
+        const BSC_RPC = "https://bsc-dataseed.binance.org/";
+
+        // --- ABIS ---
+        const WALL_ABI = [
+            "function paintPixel(uint256 x, uint256 y, string calldata color) external",
+            "function getGrid() external view returns (string[] memory, address[] memory)"
+        ];
+        const TOKEN_ABI = [
+            "function approve(address spender, uint256 amount) public returns (bool)",
+            "function allowance(address owner, address spender) public view returns (uint256)"
+        ];
+
+        // --- STATE ---
+        let provider, signer, wallContract, tokenContract, userAddress;
+        let selectedX = null;
+        let selectedY = null;
+        
+        // --- INIT ---
+        document.getElementById("contractLink").href = "https://bscscan.com/address/" + WALL_ADDRESS;
+        initGrid();
+        loadGridData(); // Load initial data via RPC
+
+        // --- GRID GENERATION ---
+        function initGrid() {
+            const container = document.getElementById("canvas-container");
+            container.innerHTML = "";
+            
+            for (let y = 0; y < 50; y++) {
+                for (let x = 0; x < 50; x++) {
+                    const div = document.createElement("div");
+                    div.className = "pixel";
+                    div.id = `px-${x}-${y}`;
+                    div.onmouseover = () => showInfo(x, y);
+                    div.onclick = () => selectPixel(x, y);
+                    container.appendChild(div);
+                }
+            }
+        }
+
+        // --- DATA LOADING (RPC) ---
+        async function loadGridData() {
+            const roProvider = new ethers.providers.JsonRpcProvider(BSC_RPC);
+            const roContract = new ethers.Contract(WALL_ADDRESS, WALL_ABI, roProvider);
+
+            try {
+                const [colors, owners] = await roContract.getGrid();
+                
+                for (let i = 0; i < 2500; i++) {
+                    const x = i % 50;
+                    const y = Math.floor(i / 50);
+                    const el = document.getElementById(`px-${x}-${y}`);
+                    
+                    if (colors[i] !== "#111111") {
+                        el.style.backgroundColor = colors[i];
+                        el.dataset.owner = owners[i]; // Store owner for hover
+                        el.dataset.color = colors[i];
+                    }
+                }
+            } catch (err) { console.error("Error loading grid", err); }
+        }
+
+        // --- INTERACTION ---
+        function showInfo(x, y) {
+            const el = document.getElementById(`px-${x}-${y}`);
+            const owner = el.dataset.owner || "None";
+            const shortOwner = owner === "None" ? "Available" : owner.slice(0,6) + "..." + owner.slice(-4);
+            
+            document.getElementById("pixelInfo").innerHTML = `
+                Coords: <strong>(${x}, ${y})</strong><br>
+                Owner: <strong>${shortOwner}</strong>
+            `;
+        }
+
+        function selectPixel(x, y) {
+            // Clear previous selection
+            if (selectedX !== null) {
+                document.getElementById(`px-${selectedX}-${selectedY}`).classList.remove("selected");
+            }
+
+            selectedX = x;
+            selectedY = y;
+            document.getElementById(`px-${x}-${y}`).classList.add("selected");
+            
+            const btn = document.getElementById("paintBtn");
+            btn.disabled = false;
+            btn.innerText = `PAINT (${x},${y}) - 50 $NODE`;
+            document.getElementById("status").innerText = "Pixel selected. Ready to paint.";
+        }
+
+        // --- WALLET ---
+        async function initConnect() {
+            if (!window.ethereum) return alert("Install Rabby/MetaMask!");
+            provider = new ethers.providers.Web3Provider(window.ethereum);
+            await provider.send("eth_requestAccounts", []);
+            
+            // Switch to BSC
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: '0x38' }],
+                });
+            } catch (e) {}
+
+            signer = provider.getSigner();
+            userAddress = await signer.getAddress();
+            
+            wallContract = new ethers.Contract(WALL_ADDRESS, WALL_ABI, signer);
+            tokenContract = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, signer);
+
+            document.getElementById("connectBtn").innerText = userAddress.slice(0,6) + "...";
+            document.getElementById("status").innerText = "Wallet Connected.";
+        }
+
+        // --- PAINT LOGIC ---
+        async function paintPixel() {
+            if (!userAddress) return initConnect();
+            if (selectedX === null) return;
+
+            const color = document.getElementById("colorPicker").value;
+            const btn = document.getElementById("paintBtn");
+            const status = document.getElementById("status");
+
+            try {
+                // 1. Check Allowance
+                const allowance = await tokenContract.allowance(userAddress, WALL_ADDRESS);
+                
+                if (allowance.lt(PIXEL_PRICE)) {
+                    status.innerText = "Approving $NODE...";
+                    btn.innerText = "APPROVING...";
+                    const tx = await tokenContract.approve(WALL_ADDRESS, ethers.constants.MaxUint256);
+                    await tx.wait();
+                }
+
+                // 2. Paint
+                status.innerText = "Confirming Paint...";
+                btn.innerText = "PAINTING...";
+                const tx = await wallContract.paintPixel(selectedX, selectedY, color);
+                
+                status.innerText = "Transaction sent... Mining...";
+                await tx.wait();
+
+                status.innerText = "PIXEL PAINTED! & BURNED!";
+                btn.innerText = "SUCCESS";
+                
+                // Update UI instantly
+                const el = document.getElementById(`px-${selectedX}-${selectedY}`);
+                el.style.backgroundColor = color;
+                el.dataset.owner = userAddress;
+                
+                setTimeout(() => { btn.innerText = "PAINT PIXEL"; }, 2000);
+
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: " + (err.reason || err.message.slice(0, 20));
+                btn.innerText = "RETRY";
+            }
+        }
+        
+        // Loop refresh
+        setInterval(loadGridData, 5000);
+
+    </script>
+</body>
+</html>
