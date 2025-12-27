@@ -15,32 +15,26 @@
 
         .main-layout { display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%; }
 
-        /* --- SCROLL WRAPPER (CORRIGIDO) --- */
+        /* SCROLL WRAPPER */
         #grid-scroll-wrapper {
             width: 100%;
-            overflow: auto; /* Scroll Bars */
+            overflow: auto; 
             border: 1px solid #333;
             background: #111;
             padding: 5px;
-            
-            /* Flex settings to fix mobile cutoff */
             display: flex;
-            
-            /* DESKTOP DEFAULT: Center the grid */
             justify-content: center; 
         }
 
         /* THE WALL (GRID) */
         #canvas-container {
             display: grid;
-            grid-template-columns: repeat(50, 12px); /* 12px pixels */
+            grid-template-columns: repeat(50, 12px); 
             grid-template-rows: repeat(50, 12px);    
             gap: 1px;
             background-color: #000;
             border: 1px solid #00ff41;
             box-shadow: 0 0 10px rgba(0, 255, 65, 0.1);
-            
-            /* Crucial: Prevent grid from squashing */
             flex-shrink: 0; 
         }
 
@@ -67,23 +61,47 @@
             text-align: left;
         }
         
-        .info-panel { margin-bottom: 10px; font-size: 0.8rem; color: #888; min-height: 35px; }
+        /* Updated Info Panel to show message */
+        .info-panel { 
+            margin-bottom: 10px; 
+            font-size: 0.8rem; 
+            color: #888; 
+            min-height: 50px; /* Taller for text */
+            word-break: break-word;
+            border-bottom: 1px dashed #333;
+            padding-bottom: 5px;
+        }
         .info-panel strong { color: #fff; }
+        .pixel-msg { color: #00ff41; font-style: italic; display: block; margin-top: 3px; }
+
+        label { font-size: 0.75rem; color:#888; display:block; margin-bottom:5px; margin-top: 10px; }
 
         input[type="color"] {
             width: 100%;
-            height: 45px;
+            height: 40px;
             border: 1px solid #333;
             background: #000;
             cursor: pointer;
-            margin-bottom: 10px;
         }
+
+        /* Message Input */
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            background: #000;
+            border: 1px solid #333;
+            color: #00ff41;
+            font-family: inherit;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+        input[type="text"]::placeholder { color: #333; }
 
         .btn { 
             background-color: #00ff41; color: #000; 
             font-size: 1rem; padding: 12px; width: 100%; 
             border: none; cursor: pointer; font-weight: bold; text-transform: uppercase; 
-            transition: 0.2s; border-radius: 4px;
+            transition: 0.2s; border-radius: 4px; margin-top: 10px;
         }
         .btn:hover { background-color: #00cc33; }
         .btn:disabled { background-color: #333; color: #555; cursor: not-allowed; }
@@ -108,13 +126,9 @@
 
         #status { color: #888; font-style: italic; font-size: 0.75rem; margin-top: 8px; text-align: center; }
 
-        /* --- MOBILE SPECIFIC FIXES --- */
+        /* MOBILE FIXES */
         @media (max-width: 600px) {
-            /* On mobile, align grid to START (Left) so (0,0) is visible */
-            #grid-scroll-wrapper {
-                justify-content: flex-start; 
-            }
-            
+            #grid-scroll-wrapper { justify-content: flex-start; } 
             body { padding: 5px; }
             h1 { font-size: 1.5rem; }
             .controls { width: 100%; }
@@ -145,11 +159,14 @@
 
         <div class="controls">
             <div class="info-panel" id="pixelInfo">
-                Tap a pixel to select...
+                Tap a pixel to view info...
             </div>
 
-            <label style="font-size: 0.75rem; color:#888; display:block; margin-bottom:5px;">CHOOSE COLOR:</label>
+            <label>1. CHOOSE COLOR:</label>
             <input type="color" id="colorPicker" value="#00ff41">
+
+            <label>2. YOUR MESSAGE (Max 100 chars):</label>
+            <input type="text" id="pixelMessage" maxlength="100" placeholder="e.g. NodeOps to the Moon! 🚀">
             
             <button id="paintBtn" class="btn" disabled onclick="paintPixel()">PAINT PIXEL</button>
             <p id="status">Waiting for connection...</p>
@@ -163,16 +180,16 @@
 
     <script>
         // --- CONFIGURATION ---
-        const WALL_ADDRESS = "0x1d34c0b0eEC3BB5Bd1eEDe9011FD4b35a30fa615"; 
+        const WALL_ADDRESS = "0x21d2a884f83e9F4F45a1EE9A4b77Fd3c69D25F32"; 
         const TOKEN_ADDRESS = "0x2F714d7b9A035d4ce24af8d9b6091c07E37f43Fb"; 
         const PIXEL_PRICE = ethers.utils.parseEther("50"); 
         
         const BSC_RPC = "https://bsc-dataseed.binance.org/";
 
-        // --- ABIS ---
+        // --- UPDATED ABI (With Message Support) ---
         const WALL_ABI = [
-            "function paintPixel(uint256 x, uint256 y, string calldata color) external",
-            "function getGrid() external view returns (string[] memory, address[] memory)"
+            "function paintPixel(uint256 x, uint256 y, string calldata color, string calldata message) external",
+            "function getGrid() external view returns (string[] memory, address[] memory, string[] memory)"
         ];
         const TOKEN_ABI = [
             "function approve(address spender, uint256 amount) public returns (bool)",
@@ -215,14 +232,18 @@
             const roContract = new ethers.Contract(WALL_ADDRESS, WALL_ABI, roProvider);
 
             try {
-                const [colors, owners] = await roContract.getGrid();
+                // Now fetching 3 arrays: colors, owners, AND messages
+                const [colors, owners, messages] = await roContract.getGrid();
+                
                 for (let i = 0; i < 2500; i++) {
                     const x = i % 50;
                     const y = Math.floor(i / 50);
                     const el = document.getElementById(`px-${x}-${y}`);
+                    
                     if (colors[i] !== "#111111") {
                         el.style.backgroundColor = colors[i];
                         el.dataset.owner = owners[i];
+                        el.dataset.msg = messages[i]; // Store message in DOM
                     }
                 }
             } catch (err) { console.error("Grid load error", err); }
@@ -241,14 +262,21 @@
             const el = document.getElementById(`px-${x}-${y}`);
             el.classList.add("selected");
             
+            // Display Info
             const owner = el.dataset.owner || "Available";
             const shortOwner = owner === "Available" ? "None" : owner.slice(0,6) + "..." + owner.slice(-4);
+            const msg = el.dataset.msg || "No message yet.";
             
+            // Render text with HTML safety
+            const safeMsg = msg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
             document.getElementById("pixelInfo").innerHTML = `
-                Coordinates: <strong style="color:#00ff41">(${x}, ${y})</strong><br>
-                Owner: <strong>${shortOwner}</strong>
+                Coords: <strong style="color:#00ff41">(${x}, ${y})</strong><br>
+                Owner: <strong>${shortOwner}</strong><br>
+                <span class="pixel-msg">"${safeMsg}"</span>
             `;
             
+            // Update Button
             const btn = document.getElementById("paintBtn");
             if (userAddress) {
                 btn.disabled = false;
@@ -327,10 +355,13 @@
             if (selectedX === null) return;
 
             const color = document.getElementById("colorPicker").value;
+            const message = document.getElementById("pixelMessage").value; // Get Message
+            
             const btn = document.getElementById("paintBtn");
             const status = document.getElementById("status");
 
             try {
+                // 1. Allowance
                 const allowance = await tokenContract.allowance(userAddress, WALL_ADDRESS);
                 if (allowance.lt(PIXEL_PRICE)) {
                     status.innerText = "Approving $NODE...";
@@ -339,9 +370,12 @@
                     await tx.wait();
                 }
 
+                // 2. Paint
                 status.innerText = "Confirming...";
                 btn.innerText = "PAINTING...";
-                const tx = await wallContract.paintPixel(selectedX, selectedY, color);
+                
+                // Call paintPixel with NEW signature (color, message)
+                const tx = await wallContract.paintPixel(selectedX, selectedY, color, message);
                 
                 status.innerText = "Mining on BSC...";
                 await tx.wait();
@@ -349,10 +383,18 @@
                 status.innerText = "SUCCESS!";
                 btn.innerText = "DONE!";
                 
+                // Optimistic UI Update
                 const el = document.getElementById(`px-${selectedX}-${selectedY}`);
                 el.style.backgroundColor = color;
                 el.dataset.owner = userAddress;
+                el.dataset.msg = message;
                 
+                // Refresh info panel to show new message immediately
+                selectPixel(selectedX, selectedY);
+                
+                // Clear input
+                document.getElementById("pixelMessage").value = "";
+
                 setTimeout(() => { 
                     if(selectedX !== null) btn.innerText = `PAINT (${selectedX},${selectedY}) - 50 $NODE`;
                     else btn.innerText = "PAINT PIXEL";
